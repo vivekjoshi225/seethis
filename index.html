@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Screenshot Tool</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+            max-width: 900px; /* Increased width */
+            margin: 20px auto;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            background-color: #fff;
+        }
+
+        h1 {
+            color: #555;
+            text-align: center;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .form-container {
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #666;
+        }
+
+        textarea,
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        button {
+            background-color: #5cb85c;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.3s ease;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #4cae4c;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .loader {
+            margin-left: 5px;
+            border: 2px solid #f3f3f3; /* Light grey */
+            border-top: 2px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 1em;
+            height: 1em;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #statusArea {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9e9e9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-height: 50px;
+            font-family: monospace;
+            white-space: pre-wrap; /* Preserve whitespace and wrap */
+        }
+
+        #progressTableContainer {
+            margin-top: 20px;
+            overflow-x: auto; /* Allow horizontal scrolling for large tables */
+        }
+
+        #progressTable {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed; /* Helps with column width */
+        }
+
+        #progressTable th,
+        #progressTable td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+            word-wrap: break-word; /* Break long URLs */
+            font-size: 0.9em;
+        }
+
+        #progressTable th {
+            background-color: #f2f2f2;
+            white-space: nowrap;
+        }
+
+        .status-pending { background-color: #f9f9f9; }
+        .status-success { background-color: #dff0d8; color: #3c763d; }
+        .status-error { background-color: #f2dede; color: #a94442; }
+
+        #downloadLinkContainer {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        #downloadLink {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #337ab7;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        #downloadLink:hover {
+            background-color: #286090;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Website Screenshot Tool</h1>
+
+    <div class="form-container">
+        <form id="screenshotForm">
+            <div class="form-group">
+                <label for="urls">URLs (one per line):</label>
+                <textarea id="urls" name="urls" placeholder="https://example.com\nhttps://google.com" required></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="resolutions">Resolutions (widthxheight, one per line):</label>
+                <textarea id="resolutions" name="resolutions" placeholder="1920x1080\n430x932" required></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="waitTime">Additional Wait Time (ms):</label>
+                <input type="number" id="waitTime" name="waitTime" value="0" min="0" step="100" required>
+            </div>
+
+            <div class="form-group">
+                <label for="mode">Screenshot Mode:</label>
+                <select id="mode" name="mode" required>
+                    <option value="viewport">Viewport Only</option>
+                    <option value="full">Full Page</option>
+                    <option value="both">Both (Viewport & Full)</option>
+                </select>
+            </div>
+
+            <button type="submit" id="submitButton">
+                Generate Screenshots
+                <span id="loadingSpinner" style="display: none;" class="loader"></span>
+            </button>
+        </form>
+    </div>
+
+    <div id="statusArea" style="display: none;">Status: Waiting to start...</div>
+
+    <div id="progressTableContainer" style="display: none;">
+        <table id="progressTable">
+            <thead>
+                <tr id="progressHeaderRow"></tr>
+            </thead>
+            <tbody id="progressTableBody"></tbody>
+        </table>
+    </div>
+
+    <div id="downloadLinkContainer" style="display: none;">
+        <a href="#" id="downloadLink" download="screenshots.zip">Download Screenshots</a>
+    </div>
+
+    <script>
+        const form = document.getElementById('screenshotForm');
+        const submitButton = document.getElementById('submitButton');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const statusArea = document.getElementById('statusArea');
+        const progressTableContainer = document.getElementById('progressTableContainer');
+        const progressHeaderRow = document.getElementById('progressHeaderRow');
+        const progressTableBody = document.getElementById('progressTableBody');
+        const downloadLinkContainer = document.getElementById('downloadLinkContainer');
+        const downloadLink = document.getElementById('downloadLink');
+
+        let ws;
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault(); // Prevent default form submission
+
+            // --- Reset UI --- 
+            submitButton.disabled = true;
+            submitButton.textContent = 'Processing...';
+            submitButton.appendChild(loadingSpinner); // Re-append spinner
+            loadingSpinner.style.display = 'inline-block';
+            statusArea.textContent = 'Status: Starting job...';
+            statusArea.style.display = 'block';
+            progressTableContainer.style.display = 'none'; // Hide old table
+            progressHeaderRow.innerHTML = ''; // Clear previous headers
+            progressTableBody.innerHTML = ''; // Clear previous body
+            downloadLinkContainer.style.display = 'none';
+
+            // --- Get Form Data --- 
+            const urls = document.getElementById('urls').value.split(/\r?\n/).map(u => u.trim()).filter(u => u);
+            const resolutions = document.getElementById('resolutions').value.split(/\r?\n/).map(r => r.trim()).filter(r => r);
+            const waitTime = document.getElementById('waitTime').value;
+            const mode = document.getElementById('mode').value;
+
+            if (urls.length === 0 || resolutions.length === 0) {
+                statusArea.textContent = 'Error: Please provide at least one URL and one resolution.';
+                resetButton();
+                return;
+            }
+
+            // --- Create Progress Table Structure --- 
+            progressTableContainer.style.display = 'block';
+            const headerCell = document.createElement('th');
+            headerCell.textContent = 'URL';
+            progressHeaderRow.appendChild(headerCell);
+            resolutions.forEach(res => {
+                const th = document.createElement('th');
+                th.textContent = res;
+                progressHeaderRow.appendChild(th);
+            });
+
+            urls.forEach(url => {
+                const row = document.createElement('tr');
+                const urlCell = document.createElement('td');
+                urlCell.textContent = url;
+                row.appendChild(urlCell);
+
+                resolutions.forEach(res => {
+                    const cell = document.createElement('td');
+                    cell.id = `cell-${url}-${res}`; // Unique ID for the cell
+                    cell.className = 'status-pending';
+                    cell.textContent = 'Pending';
+                    row.appendChild(cell);
+                });
+                progressTableBody.appendChild(row);
+            });
+
+            // --- Send Request to Server --- 
+            try {
+                const response = await fetch('/admin/manage/screenshot-tool', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ urls, resolutions, waitTime, mode })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error: ${response.status} - ${errorText}`);
+                }
+
+                const result = await response.json();
+
+                if (result.status === 'accepted' && result.taskId) {
+                    statusArea.textContent = `Status: Job accepted (ID: ${result.taskId}). Waiting for progress...`;
+                    setupWebSocket(result.taskId, urls, resolutions);
+                } else {
+                    throw new Error('Server did not accept the job.');
+                }
+
+            } catch (error) {
+                console.error('Error submitting job:', error);
+                statusArea.textContent = `Error: ${error.message}`;
+                resetButton();
+            }
+        });
+
+        function setupWebSocket(taskId, urls, resolutions) {
+            // Construct WebSocket URL (handle http/https)
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}`;
+            ws = new WebSocket(wsUrl); // Connect to the same host/port
+
+            ws.onopen = () => {
+                console.log('WebSocket Connected');
+                // Register this client for the specific task
+                ws.send(JSON.stringify({ type: 'register', taskId: taskId }));
+                statusArea.textContent = 'Status: Connected to server. Processing started...';
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    console.log('WS Message Received:', message);
+
+                    switch (message.type) {
+                        case 'status':
+                            statusArea.textContent = `Status: ${message.message}`;
+                            break;
+                        case 'progress':
+                            updateProgressCell(message.url, message.resolution, message.status, message.error);
+                            break;
+                        case 'complete':
+                            statusArea.textContent = `Status: Processing complete! Task ID: ${message.taskId}`;
+                            downloadLink.href = message.downloadUrl;
+                            downloadLinkContainer.style.display = 'block';
+                            resetButton();
+                            ws.close(); // Close WS connection
+                            break;
+                        case 'error': // General error from server
+                            statusArea.textContent = `Server Error: ${message.message}`;
+                            resetButton();
+                            ws.close();
+                            break;
+                    }
+                } catch (e) {
+                    console.error('Error parsing WebSocket message:', e);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                statusArea.textContent = 'Error: WebSocket connection error. Please try again.';
+                resetButton();
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket Disconnected');
+                // Don't reset status if download link is visible
+                if (downloadLinkContainer.style.display === 'none') {
+                   // statusArea.textContent = 'Status: Connection closed.';
+                   // resetButton(); // Only reset if not completed successfully
+                }
+            };
+        }
+
+        function updateProgressCell(url, resolution, status, errorMsg) {
+            const cellId = `cell-${url}-${resolution}`;
+            const cell = document.getElementById(cellId);
+            if (cell) {
+                if (status === 'success') {
+                    cell.className = 'status-success';
+                    cell.textContent = 'Done';
+                } else if (status === 'error') {
+                    cell.className = 'status-error';
+                    cell.textContent = 'Error';
+                    cell.title = errorMsg || 'An unknown error occurred';
+                } else {
+                    cell.className = 'status-pending'; // Should not happen often if status updates come first
+                    cell.textContent = 'Processing...';
+                }
+            } else {
+                console.warn(`Could not find cell with ID: ${cellId}`);
+            }
+        }
+
+        function resetButton() {
+            submitButton.disabled = false;
+            loadingSpinner.style.display = 'none';
+            submitButton.textContent = 'Generate Screenshots'; // Restore original text
+        }
+
+        // If the page is reloaded (e.g., back button), ensure button is enabled
+        window.addEventListener('pageshow', (event) => {
+          if (event.persisted) { // Check if page was loaded from bfcache
+            resetButton();
+            // Note: WebSocket state might be lost on bfcache restore
+            statusArea.style.display = 'none';
+            progressTableContainer.style.display = 'none';
+            downloadLinkContainer.style.display = 'none';
+             if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+          }
+        });
+
+    </script>
+
+</body>
+</html> 
