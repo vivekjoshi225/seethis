@@ -5,10 +5,10 @@ import fs from 'fs-extra';
 import taskStore from '@/lib/task-store';
 import { processScreenshotTask } from '@/lib/process-task'; // We will create this next
 import {
-  ScreenshotTask,
   ScreenshotJob,
-  StartTaskPayload,
   TaskStatus,
+  startTaskSchema, // Import the Zod schema
+  StartTaskPayload, // Still useful for type hints if needed, though schema handles validation
 } from '@/types/screenshot';
 
 // Base directory for storing task-specific screenshots (within /public)
@@ -21,43 +21,69 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
-  const { urls, width, height, fullPage }: StartTaskPayload = req.body;
+  // --- Validate request body using Zod (includes waitMs validation now) --- 
+  const validationResult = startTaskSchema.safeParse(req.body);
+  if (!validationResult.success) {
+    // Combine Zod errors into a single message
+    const errorMessage = validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
+    console.warn(`[API /start-task] Validation failed: ${errorMessage}`);
+    return res.status(400).json({ error: `Invalid input: ${errorMessage}` });
+  }
 
-  // Basic validation
-  if (!urls || !Array.isArray(urls) || urls.length === 0 || !width || !height) {
-    return res.status(400).json({ error: 'Invalid input: urls (array), width, and height are required.' });
-  }
-  if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) {
-    return res.status(400).json({ error: 'Invalid dimensions.' });
-  }
-  if (typeof fullPage !== 'boolean') {
-    return res.status(400).json({ error: 'Invalid fullPage value.' });
-  }
+  // --- Extract validated data (including waitMs) --- 
+  const { urls, dimensions, screenshotType, waitMs } = validationResult.data;
+  
+  // --- Deduplicate URLs and Dimensions on backend as safeguard ---
+  const uniqueUrls = Array.from(new Set(urls));
+  const uniqueDimensions = Array.from(new Set(dimensions));
 
   const taskId = uuidv4();
   const taskSpecificDir = path.join(BASE_TASK_SCREENSHOT_DIR, taskId);
-  fs.ensureDirSync(taskSpecificDir); // Create directory for this task's screenshots
+  fs.ensureDirSync(taskSpecificDir); 
 
-  // Create initial job list
-  const jobs: ScreenshotJob[] = urls.map((url, index) => ({
-    id: `${taskId}-${index}`,
-    url: url.trim(), // Trim whitespace
-    width,
-    height,
-    fullPage,
-    status: 'pending',
-  }));
+  // --- Create initial job list (using unique URLs/Dimensions) ---
+  const jobs: ScreenshotJob[] = [];
+  uniqueUrls.forEach((url) => { // Use uniqueUrls
+    uniqueDimensions.forEach((dimension) => { // Use uniqueDimensions
+      const baseJobId = `${taskId}-${url}-${dimension}`.replace(/[^a-zA-Z0-9-_]/g, '_');
+
+      if (screenshotType === 'viewport' || screenshotType === 'both') {
+        jobs.push({
+          id: `${baseJobId}-vp`,
+          url: url.trim(), // URL should already be trimmed/validated by schema
+          dimension: dimension,
+          screenshotType: 'viewport',
+          status: 'pending',
+          waitMs: waitMs,
+        });
+      }
+      if (screenshotType === 'fullPage' || screenshotType === 'both') {
+        jobs.push({
+          id: `${baseJobId}-fp`,
+          url: url.trim(), 
+          dimension: dimension,
+          screenshotType: 'fullPage',
+          status: 'pending',
+          waitMs: waitMs,
+        });
+      }
+    });
+  });
+
+  if (jobs.length === 0) {
+      return res.status(400).json({ error: 'No valid screenshot jobs could be generated after deduplication.' });
+  }
 
   // Create and store the task details
-  const newTask: ScreenshotTask = {
+  const newTask = { 
     taskId,
-    status: 'pending', // Initial status
-    jobs,
+    status: 'pending' as TaskStatus, 
+    jobs, // Use jobs generated from unique inputs
     createdAt: Date.now(),
-    taskSpecificDir, // Store the full path
+    taskSpecificDir, 
   };
   taskStore.set(taskId, newTask);
-  console.log(`[API /start-task] Task ${taskId} created. Jobs: ${jobs.length}`);
+  console.log(`[API /start-task] Task ${taskId} created. Unique URLs: ${uniqueUrls.length}, Unique Dims: ${uniqueDimensions.length}, Jobs: ${jobs.length} (Type: ${screenshotType}, Wait: ${waitMs}ms)`);
 
   // Start processing asynchronously (don't await)
   processScreenshotTask(taskId).catch((error: Error) => {

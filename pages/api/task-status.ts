@@ -25,20 +25,16 @@ export default function handler(
   const task = taskStore.get(taskId);
 
   if (!task) {
-    console.error(`[API /task-status] Task ${taskId} not found in store!`);
+    // console.error(`[API /task-status] Task ${taskId} not found in store!`); // Keep console error if desired
     return res.status(404).json({ error: `Task with ID ${taskId} not found.` });
   }
 
-  // Determine if zip is ready (simple check for now)
-  const zipReady = task.status === 'completed' || task.status === 'partially_completed';
-
-  // Return the current state of the task
+  // Return the current state of the task, conforming to the updated TaskStatusResponse
   const response: TaskStatusResponse = {
     taskId: task.taskId,
     status: task.status,
-    jobs: task.jobs, // Send the status of all jobs
-    error: task.error,
-    zipReady: zipReady
+    jobs: task.jobs,
+    error: task.error || null,
   };
 
   res.status(200).json(response);
