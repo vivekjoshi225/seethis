@@ -22,6 +22,9 @@ const puppeteerLaunchOptions = {
 // Timeout for Puppeteer page navigation
 const NAVIGATION_TIMEOUT = 60000; // 60 seconds
 
+const SCREENSHOTS_DIR = path.join(process.cwd(), 'screenshots');
+const MAX_CONCURRENT_PAGES = 5;
+
 // --- Helper Function to Parse Dimension String --- 
 function parseDimension(dimension: string): { width: number, height: number } | null {
   const match = dimension.match(/^(\d+)x(\d+)$/);
@@ -33,6 +36,47 @@ function parseDimension(dimension: string): { width: number, height: number } | 
     }
   }
   return null;
+}
+
+// --- Helper: Sanitize URL parts for filename ---
+function sanitizeForFilename(text: string): string {
+    // Remove protocol, replace common invalid chars with underscore
+    // Keep dots for domain, replace slashes in path
+    return text
+        .replace(/^https?:\/\//, '')
+        .replace(/\//g, '_') // Replace slashes with underscore
+        .replace(/[^a-zA-Z0-9_.-]/g, '') // Remove other invalid chars
+        .substring(0, 100); // Limit length to prevent excessively long names
+}
+
+// --- Helper: Generate descriptive filename ---
+function generateScreenshotFilename(url: string, dimension: string, type: 'viewport' | 'fullPage'): string {
+    try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname.replace(/^www\./, ''); // Remove www.
+        let pathSegment = urlObj.pathname;
+
+        // Clean up path segment
+        if (pathSegment === '/' || pathSegment === '') {
+            pathSegment = 'home'; // Use 'home' for root path
+        } else {
+            // Remove leading/trailing slashes and sanitize
+            pathSegment = sanitizeForFilename(pathSegment.replace(/^\/|\/$/g, '')); 
+        }
+
+        // Construct filename: domain_path_dimension_type.png
+        const safeHostname = sanitizeForFilename(hostname);
+        const filename = `${safeHostname}_${pathSegment}_${dimension}_${type}.png`;
+        
+        // Further truncate if somehow still too long (should be rare)
+        return filename.length > 200 ? filename.substring(0, 196) + '.png' : filename;
+
+    } catch (error) {
+        console.error(`Error parsing URL for filename: ${url}`, error);
+        // Fallback filename if URL parsing fails
+        const fallbackName = `${sanitizeForFilename(url)}_${dimension}_${type}`.substring(0, 196);
+        return `${fallbackName}.png`;
+    }
 }
 
 async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: Page): Promise<Partial<ScreenshotJob>> {
@@ -64,7 +108,7 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
     }
 
     // --- Screenshot Logic ---
-    const filename = `${hostname}_${dimension}_${screenshotType}_${jobId}.png`;
+    const filename = generateScreenshotFilename(url, dimension, screenshotType);
     const localFilePath = path.join(taskSpecificDir, filename);
     const publicImageUrl = `/task_screenshots/${taskId}/${filename}`;
 

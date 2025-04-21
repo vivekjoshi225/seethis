@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { DeviceDimensionInput } from '@/components/ui/device-dimension-input';
 import {
   Table,
   TableBody,
@@ -27,17 +28,17 @@ import {
 import { Toaster, toast } from 'sonner';
 import { Loader2, CheckCircle2, XCircle, ExternalLink, Download, AlertTriangle, Ban } from 'lucide-react';
 import { ScreenshotJob, ScreenshotStatus, TaskStatus, TaskStatusResponse } from '@/types/screenshot';
+import { POPULAR_DEVICES } from '@/constants/devices'; // Import device data
 
 // --- Constants ---
 const POLLING_INTERVAL = 3000; // Poll every 3 seconds
-const dimensionRegex = /^\d+x\d+$/; // Correct the regex: Use single backslash \d inside /.../
+const dimensionRegex = /^\d+x\d+$/; // Keep for potential manual input in future? Or remove? For now, keep but validation changes.
 
 // --- Default Form Values ---
 const DEFAULT_FORM_VALUES = {
   urls: `https://craftedfolio.com/portfolio/vivek-joshi
 https://craftedfolio.com/portfolio/john-doe`,
-  dimensions: `1920x1080
-430x932`,
+  dimensions: '', // Start with no devices selected
   screenshotType: 'viewport' as 'viewport' | 'fullPage' | 'both', // Ensure type correctness
   waitMs: 3000,
 };
@@ -45,11 +46,12 @@ https://craftedfolio.com/portfolio/john-doe`,
 // --- Update Form Schema ---
 const formSchema = z.object({
   urls: z.string().min(1, 'Please enter at least one URL.'),
-  dimensions: z.string().min(1, 'Please enter at least one dimension (e.g., 1920x1080).')
+  dimensions: z.string().min(1, 'Please select at least one device or enter a dimension.') // Simplified validation
     .refine(value => {
-        const lines = value.split('\n').map(d => d.trim()).filter(d => d.length > 0);
-        return lines.length > 0 && lines.every(line => dimensionRegex.test(line)); 
-    }, 'Each dimension must be in WxH format (e.g., 1920x1080), one per line.'),
+        // Allow empty or newline-separated WxH dimensions
+        const lines = value.split('\\n').map(d => d.trim()).filter(d => d.length > 0);
+        return lines.every(line => dimensionRegex.test(line));
+    }, 'Invalid dimension format detected. Use WxH if manually entering.'), // Keep basic format check?
   screenshotType: z.enum(['viewport', 'fullPage', 'both']).default(DEFAULT_FORM_VALUES.screenshotType), // Use default from const
   waitMs: z.coerce.number().int().min(0).max(7000).optional().default(DEFAULT_FORM_VALUES.waitMs), // Use default from const
 });
@@ -69,6 +71,15 @@ export default function Home() {
   const [isCancelling, setIsCancelling] = useState(false); // State for cancellation UI
 
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Create a reverse map for quick dimension -> name lookup
+  const dimensionToNameMap = React.useMemo(() => {
+      const map = new Map<string, string>();
+      POPULAR_DEVICES.forEach(device => {
+          map.set(device.dimension, device.name);
+      });
+      return map;
+  }, []); // Empty dependency array ensures this runs only once
 
   const {
     register,
@@ -309,7 +320,7 @@ export default function Home() {
         <title>SeeThisIn | Website Visuzlization App</title>
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      <Toaster richColors position="top-right" />
+      <Toaster richColors position="top-right" duration={2000} />
 
       <main className="flex flex-col items-center w-full max-w-6xl space-y-6">
         {/* Adjust Title gradient for dark theme */}
@@ -348,19 +359,23 @@ https://youtube.com`}
                     {errors.urls && <p className="text-sm font-medium text-destructive mt-1">{errors.urls.message}</p>}
                   </div>
 
-                  {/* Dimensions Textarea */}
+                  {/* Dimensions Input - Replaced Textarea */}
                   <div>
-                    <Label htmlFor="dimensions">Dimensions (WxH, One per line)</Label>
-                    <Textarea
-                      id="dimensions"
-                      placeholder={`1920x1080
-1366x768
-375x812`
-                      }
-                      className="mt-1 font-mono"
-                      rows={5}
-                      {...register('dimensions')}
-                      disabled={isSubmitting || isPolling}
+                    <Label htmlFor="dimensions">Devices / Dimensions</Label>
+                    <Controller
+                      name="dimensions"
+                      control={control}
+                      render={({ field }) => (
+                        <DeviceDimensionInput
+                          id="dimensions"
+                          value={field.value}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur} // Important for validation trigger
+                          disabled={isSubmitting || isPolling}
+                          className="mt-1" // Add margin similar to other inputs
+                          placeholder="Select devices..." // Updated placeholder
+                        />
+                      )}
                     />
                     {errors.dimensions && <p className="text-sm font-medium text-destructive mt-1">{errors.dimensions.message}</p>}
                   </div>
@@ -496,16 +511,19 @@ https://youtube.com`}
                           <TableHead className="sticky left-0 bg-slate-800 z-10 w-[250px] lg:w-[350px] whitespace-nowrap text-slate-100 hover:bg-slate-700">URL</TableHead> 
                           
                           {/* Dynamically generate headers based on submitted dimensions/type */}
-                          {submittedDimensions.map((dim) => (
-                              <React.Fragment key={dim}> 
-                                  {(submittedScreenshotType === 'viewport' || submittedScreenshotType === 'both') && (
-                                      <TableHead className="text-center whitespace-nowrap hover:bg-slate-700">{dim} Viewport</TableHead>
-                                  )}
-                                  {(submittedScreenshotType === 'fullPage' || submittedScreenshotType === 'both') && (
-                                      <TableHead className="text-center whitespace-nowrap hover:bg-slate-700">{dim} Full Page</TableHead>
-                                  )}
-                              </React.Fragment>
-                          ))}
+                          {submittedDimensions.map((dim) => {
+                              const deviceName = dimensionToNameMap.get(dim) || dim; // Get name or fallback to dimension
+                              return (
+                                  <React.Fragment key={dim}> 
+                                      {(submittedScreenshotType === 'viewport' || submittedScreenshotType === 'both') && (
+                                          <TableHead className="text-center whitespace-nowrap hover:bg-slate-700" title={dim}>{deviceName} Viewport</TableHead>
+                                      )}
+                                      {(submittedScreenshotType === 'fullPage' || submittedScreenshotType === 'both') && (
+                                          <TableHead className="text-center whitespace-nowrap hover:bg-slate-700" title={dim}>{deviceName} Full Page</TableHead>
+                                      )}
+                                  </React.Fragment>
+                              );
+                          })}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
