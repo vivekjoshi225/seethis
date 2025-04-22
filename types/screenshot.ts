@@ -11,6 +11,7 @@ export interface ScreenshotJob {
   waitMs?: number; // Optional delay in milliseconds before taking screenshot
   imageUrl?: string; // URL to the stored image (if completed)
   message?: string; // Error message (if error)
+  localPath?: string; // Temporary path on server where file was saved
 }
 
 export type TaskStatus = 'pending' | 'processing' | 'completed' | 'error' | 'partially_completed' | 'cancelling' | 'cancelled';

@@ -5,6 +5,18 @@ import { URL } from 'url';
 import taskStore from '@/lib/task-store';
 import { ScreenshotTask, ScreenshotJob, TaskStatus } from '@/types/screenshot';
 
+// Vercel Deployment Notes:
+// 1. Puppeteer: Standard 'puppeteer' might exceed size/memory limits.
+//    Consider using '@sparticuz/chromium' and 'puppeteer-core'.
+//    See: https://github.com/Sparticuz/chromium
+// 2. Task Store: In-memory 'taskStore' is NOT suitable for serverless.
+//    Each API call/function invocation is stateless. Use Vercel KV, Upstash Redis,
+//    or a database for persistent task state tracking.
+// 3. File Storage: Serverless functions have limited, ephemeral writable storage
+//    at /tmp. Writing to other locations (like 'public') is unreliable.
+//    Screenshots saved to /tmp will NOT persist across invocations or scaling.
+//    For persistent storage, upload screenshots to Vercel Blob, S3, etc.
+
 // TODO: Move puppeteer launch options here or to a shared config
 const puppeteerLaunchOptions = {
   headless: true,
@@ -22,8 +34,10 @@ const puppeteerLaunchOptions = {
 // Timeout for Puppeteer page navigation
 const NAVIGATION_TIMEOUT = 60000; // 60 seconds
 
-const SCREENSHOTS_DIR = path.join(process.cwd(), 'screenshots');
-const MAX_CONCURRENT_PAGES = 5;
+// Use /tmp for writable storage in serverless environments
+const BASE_SCREENSHOTS_DIR = '/tmp/task_screenshots'; // Changed from 'screenshots' or 'public/task_screenshots'
+
+const MAX_CONCURRENT_PAGES = 5; // Currently unused, processing is sequential
 
 // --- Helper Function to Parse Dimension String --- 
 function parseDimension(dimension: string): { width: number, height: number } | null {
@@ -81,8 +95,20 @@ function generateScreenshotFilename(url: string, dimension: string, type: 'viewp
 
 async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: Page): Promise<Partial<ScreenshotJob>> {
     // Extract data, including waitMs
-    const { url: rawUrl, dimension, screenshotType, id: jobId, waitMs: initialWaitMs } = job; // Rename to avoid conflict
-    const { taskId, taskSpecificDir } = task;
+    const { url: rawUrl, dimension, screenshotType, id: jobId, waitMs: initialWaitMs } = job;
+    const { taskId } = task; // taskSpecificDir is calculated below
+
+    // --- Calculate task-specific directory within /tmp ---
+    const taskSpecificDir = path.join(BASE_SCREENSHOTS_DIR, taskId);
+
+    // --- Ensure Directory Exists (Crucial Step!) ---
+    try {
+        await fs.ensureDir(taskSpecificDir); // Create directory if it doesn't exist
+    } catch (dirError: any) {
+         console.error(`[Task ${taskId}] Failed to create screenshot directory ${taskSpecificDir}:`, dirError);
+         return { status: 'error', message: `Failed to create storage directory: ${dirError.message}` };
+    }
+    // --- End Directory Creation ---
 
     // --- Parse Dimensions ---
     const parsedDim = parseDimension(dimension);
@@ -110,7 +136,7 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
     // --- Screenshot Logic ---
     const filename = generateScreenshotFilename(url, dimension, screenshotType);
     const localFilePath = path.join(taskSpecificDir, filename);
-    const publicImageUrl = `/task_screenshots/${taskId}/${filename}`;
+    // Removed: const publicImageUrl = `/task_screenshots/${taskId}/${filename}`; // Unreliable with /tmp storage
 
     try {
         // Cap the wait time at 5000ms as a final safeguard
@@ -137,7 +163,8 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
         });
 
         console.log(`[Task ${taskId}] Screenshot saved for job ${jobId}: ${localFilePath}`);
-        return { status: 'completed', imageUrl: publicImageUrl };
+        // Return status and the temporary local path
+        return { status: 'completed', localPath: localFilePath };
 
     } catch (error: any) {
         console.error(`[Task ${taskId}] Error processing job ${jobId} (${url}):`, error);
@@ -155,6 +182,7 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
         } else {
              errorMessage = `An unknown error occurred: ${String(error)}`;
         }
+        // Return only properties defined in ScreenshotJob
         return { status: 'error', message: errorMessage };
     }
 }
@@ -175,6 +203,8 @@ export async function processScreenshotTask(taskId: string): Promise<void> {
 
     // Set to processing
     task.status = 'processing';
+    // Critical Note: This update to the in-memory store will likely NOT be seen
+    // by subsequent polling requests on Vercel due to statelessness.
     taskStore.set(taskId, { ...task });
     console.log(`[Process Task] Starting processing for task ${taskId} with ${task.jobs.length} jobs.`);
 
@@ -297,4 +327,25 @@ export async function processScreenshotTask(taskId: string): Promise<void> {
             console.error(`[Process Task] Task ${taskId} not found in store during final update.`);
         }
     }
+
+    // Determine final task status
+    // Also check if cancelled earlier
+    if (task.status !== 'cancelled') { // Don't override cancellation status
+        if (errorCount === task.jobs.length) {
+            task.status = 'error';
+            task.error = 'All jobs failed.';
+        } else if (completedCount + errorCount === task.jobs.length) {
+            // Use 'partially_completed' if there were any errors
+            task.status = errorCount > 0 ? 'partially_completed' : 'completed';
+        } else {
+             // This case might occur if interrupted unexpectedly
+             task.status = 'error';
+             task.error = 'Processing did not complete fully for an unknown reason.';
+        }
+    }
+
+    // Final update
+    // Critical Note: Final state update needs persistent storage for Vercel.
+    taskStore.set(taskId, { ...task });
+    console.log(`[Process Task] Finished task ${taskId}. Final Status: ${task.status}. Completed: ${completedCount}, Errors: ${errorCount}`);
 } 

@@ -1,9 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import fs from 'fs-extra';
 import taskStore from '@/lib/task-store';
-import { processScreenshotTask } from '@/lib/process-task'; // We will create this next
+import { processScreenshotTask } from '@/lib/process-task'; // This will need to handle dir creation
 import {
   ScreenshotJob,
   TaskStatus,
@@ -11,9 +10,9 @@ import {
   StartTaskPayload, // Still useful for type hints if needed, though schema handles validation
 } from '@/types/screenshot';
 
-// Base directory for storing task-specific screenshots (within /public)
-const BASE_TASK_SCREENSHOT_DIR = path.join(process.cwd(), 'public', 'task_screenshots');
-fs.ensureDirSync(BASE_TASK_SCREENSHOT_DIR);
+// Directory path constant remains useful for the background task
+// const BASE_TASK_SCREENSHOT_DIR = path.join(process.cwd(), 'public', 'task_screenshots');
+// Removed: fs.ensureDirSync(BASE_TASK_SCREENSHOT_DIR); // Move responsibility to background task if needed globally, or per-task
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -38,8 +37,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const uniqueDimensions = Array.from(new Set(dimensions));
 
   const taskId = uuidv4();
-  const taskSpecificDir = path.join(BASE_TASK_SCREENSHOT_DIR, taskId);
-  fs.ensureDirSync(taskSpecificDir); 
+  // Removed: const taskSpecificDir = path.join(BASE_TASK_SCREENSHOT_DIR, taskId);
+  // Removed: fs.ensureDirSync(taskSpecificDir); // Responsibility moved to background task
 
   // --- Create initial job list (using unique URLs/Dimensions) ---
   const jobs: ScreenshotJob[] = [];
@@ -75,12 +74,12 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Create and store the task details
-  const newTask = { 
+  const newTask = {
     taskId,
-    status: 'pending' as TaskStatus, 
-    jobs, // Use jobs generated from unique inputs
+    status: 'pending' as TaskStatus,
+    jobs,
     createdAt: Date.now(),
-    taskSpecificDir, 
+    // Removed taskSpecificDir from initial task object, background task will determine path
   };
   taskStore.set(taskId, newTask);
   console.log(`[API /start-task] Task ${taskId} created. Unique URLs: ${uniqueUrls.length}, Unique Dims: ${uniqueDimensions.length}, Jobs: ${jobs.length} (Type: ${screenshotType}, Wait: ${waitMs}ms)`);
