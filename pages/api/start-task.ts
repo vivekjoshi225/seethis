@@ -8,11 +8,12 @@ import {
   TaskStatus,
   startTaskSchema, // Import the Zod schema
   StartTaskPayload, // Still useful for type hints if needed, though schema handles validation
+  ScreenshotTask, // Make sure ScreenshotTask is imported
 } from '@/types/screenshot';
 
-// Directory path constant remains useful for the background task
-// const BASE_TASK_SCREENSHOT_DIR = path.join(process.cwd(), 'public', 'task_screenshots');
-// Removed: fs.ensureDirSync(BASE_TASK_SCREENSHOT_DIR); // Move responsibility to background task if needed globally, or per-task
+// Define the base directory path constant here so it can be used
+const BASE_TASK_SCREENSHOT_DIR = path.join(process.cwd(), 'public', 'task_screenshots');
+// No fs.ensureDirSync here
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -37,8 +38,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const uniqueDimensions = Array.from(new Set(dimensions));
 
   const taskId = uuidv4();
-  // Removed: const taskSpecificDir = path.join(BASE_TASK_SCREENSHOT_DIR, taskId);
-  // Removed: fs.ensureDirSync(taskSpecificDir); // Responsibility moved to background task
+  // Calculate the directory path, but don't create it here
+  const taskSpecificDir = path.join(BASE_TASK_SCREENSHOT_DIR, taskId);
+  // No fs.ensureDirSync(taskSpecificDir);
 
   // --- Create initial job list (using unique URLs/Dimensions) ---
   const jobs: ScreenshotJob[] = [];
@@ -73,16 +75,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ error: 'No valid screenshot jobs could be generated after deduplication.' });
   }
 
-  // Create and store the task details
-  const newTask = {
+  // Create the task object including the calculated path
+  const newTask: ScreenshotTask = { // Ensure it conforms to ScreenshotTask type
     taskId,
     status: 'pending' as TaskStatus,
     jobs,
     createdAt: Date.now(),
-    // Removed taskSpecificDir from initial task object, background task will determine path
+    taskSpecificDir, // Include the path for the background task
   };
-  taskStore.set(taskId, newTask);
-  console.log(`[API /start-task] Task ${taskId} created. Unique URLs: ${uniqueUrls.length}, Unique Dims: ${uniqueDimensions.length}, Jobs: ${jobs.length} (Type: ${screenshotType}, Wait: ${waitMs}ms)`);
+  taskStore.set(taskId, newTask); // This should now satisfy the type checker
+  console.log(`[API /start-task] Task ${taskId} created. Jobs: ${jobs.length} (Type: ${screenshotType}, Wait: ${waitMs}ms), Path: ${taskSpecificDir}`);
 
   // Start processing asynchronously (don't await)
   processScreenshotTask(taskId).catch((error: Error) => {
