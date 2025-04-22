@@ -1,42 +1,69 @@
-import puppeteer, { Browser, Page } from 'puppeteer';
 import path from 'path';
 import fs from 'fs-extra';
 import { URL } from 'url';
 import { getTask, setTask } from '@/lib/task-store';
 import { ScreenshotTask, ScreenshotJob, TaskStatus } from '@/types/screenshot';
 
-// Vercel Deployment Notes:
-// 1. Puppeteer: Standard 'puppeteer' might exceed size/memory limits.
-//    Consider using '@sparticuz/chromium' and 'puppeteer-core'.
-//    See: https://github.com/Sparticuz/chromium
-// 2. Task Store: In-memory 'taskStore' is NOT suitable for serverless.
-//    Each API call/function invocation is stateless. Use Vercel KV, Upstash Redis,
-//    or a database for persistent task state tracking.
-// 3. File Storage: Serverless functions have limited, ephemeral writable storage
-//    at /tmp. Writing to other locations (like 'public') is unreliable.
-//    Screenshots saved to /tmp will NOT persist across invocations or scaling.
-//    For persistent storage, upload screenshots to Vercel Blob, S3, etc.
+// Don't use explicit puppeteer-core types to avoid compatibility issues
+// Instead, use a more generic type definition
+type PuppeteerBrowser = any; // This avoids type conflicts between different Puppeteer versions
+type PuppeteerPage = any;
 
-// TODO: Move puppeteer launch options here or to a shared config
-const puppeteerLaunchOptions = {
-  headless: true,
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-accelerated-2d-canvas',
-    '--no-first-run',
-    '--no-zygote',
-    '--disable-gpu'
-  ]
-};
+// Vercel Deployment Notes:
+// 1. Puppeteer: We now conditionally use either:
+//    - Standard 'puppeteer' for local development
+//    - '@sparticuz/chromium' with 'puppeteer-core' for Vercel deployment
+// 2. Task Store: Using Vercel KV for state persistence
+// 3. File Storage: In production, /tmp could be used but files won't persist.
+//    For production, consider Vercel Blob Storage instead.
+
+// Environment detection helper
+const isVercelProduction = process.env.VERCEL === '1';
+console.log(`[Environment] Running in ${isVercelProduction ? 'Vercel production' : 'local development'} mode`);
+
+// Dynamic browser initialization
+async function getBrowser(): Promise<PuppeteerBrowser> {
+  if (isVercelProduction) {
+    console.log('[Browser] Using @sparticuz/chromium for Vercel environment');
+    // Dynamic imports for Vercel environment
+    const puppeteerCore = await import('puppeteer-core');
+    const chromium = await import('@sparticuz/chromium');
+    
+    return puppeteerCore.default.launch({
+      args: chromium.default.args,
+      defaultViewport: { width: 1280, height: 720 },
+      executablePath: await chromium.default.executablePath(),
+      headless: chromium.default.headless,
+    });
+  } else {
+    console.log('[Browser] Using standard Puppeteer for local environment');
+    // Dynamic import for local environment
+    const puppeteer = await import('puppeteer');
+    
+    return puppeteer.default.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
+    });
+  }
+}
 
 // Timeout for Puppeteer page navigation
 const NAVIGATION_TIMEOUT = 60000; // 60 seconds
 
 // Use the same path as defined in start-task.ts
 // Use process.cwd() instead of hardcoded '/tmp' for cross-platform compatibility
-const BASE_SCREENSHOTS_DIR = path.join(process.cwd(), 'public', 'task_screenshots');
+// For Vercel, we'll need to use /tmp or consider using Vercel Blob Storage
+const BASE_SCREENSHOTS_DIR = isVercelProduction 
+  ? '/tmp/task_screenshots'  // Use /tmp for Vercel (ephemeral)
+  : path.join(process.cwd(), 'public', 'task_screenshots'); // Local dev path
 
 // --- Helper Functions (parseDimension, sanitizeForFilename, generateScreenshotFilename) ---
 function parseDimension(dimension: string): { width: number, height: number } | null {
@@ -92,17 +119,25 @@ function generateScreenshotFilename(url: string, dimension: string, type: 'viewp
 // --- End Helper Functions ---
 
 
-async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: Page): Promise<Partial<ScreenshotJob>> {
+async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: PuppeteerPage): Promise<Partial<ScreenshotJob>> {
     // Extract data, including waitMs
     const { url: rawUrl, dimension, screenshotType, id: jobId, waitMs: initialWaitMs } = job;
-    const { taskId, taskSpecificDir } = task; // Use taskSpecificDir from the task object directly
+    const { taskId, taskSpecificDir } = task;
+
+    // --- Handle directory paths based on environment ---
+    // For Vercel, override the path to use /tmp
+    const effectiveDir = isVercelProduction
+        ? path.join('/tmp/task_screenshots', taskId) // Use /tmp on Vercel
+        : taskSpecificDir; // Use original path locally
+    
+    console.log(`[Task ${taskId}] Using directory for job ${jobId}: ${effectiveDir} (original: ${taskSpecificDir})`);
 
     // --- Ensure Directory Exists (Crucial Step!) ---
     try {
-        await fs.ensureDir(taskSpecificDir); // Create directory if it doesn't exist
-        console.log(`[Task ${taskId}] Ensuring directory exists: ${taskSpecificDir}`);
+        await fs.ensureDir(effectiveDir); // Create directory if it doesn't exist
+        console.log(`[Task ${taskId}] Ensuring directory exists: ${effectiveDir}`);
     } catch (dirError: any) {
-         console.error(`[Task ${taskId}] Failed to create screenshot directory ${taskSpecificDir}:`, dirError);
+         console.error(`[Task ${taskId}] Failed to create screenshot directory ${effectiveDir}:`, dirError);
          // Return only properties defined in ScreenshotJob
          return { status: 'error', message: `Failed to create storage directory: ${dirError.message}` };
     }
@@ -133,8 +168,10 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
 
     // --- Screenshot Logic ---
     const filename = generateScreenshotFilename(url, dimension, screenshotType);
-    const localFilePath = path.join(taskSpecificDir, filename);
-    // For public URL, use the path relative to public directory
+    // Store file in the effective directory (which might be in /tmp on Vercel)
+    const localFilePath = path.join(effectiveDir, filename);
+    // For public URL, always use the path relative to public directory,
+    // regardless of where it's actually stored
     const publicImageUrl = `/task_screenshots/${taskId}/${filename}`;
 
     try {
@@ -162,11 +199,16 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
         });
 
         console.log(`[Task ${taskId}] Screenshot saved for job ${jobId}: ${localFilePath}`);
-        // Return both the local path and a public URL for the image
+        
+        // Return result including both paths
+        // Note: In production, you would ideally upload to Blob storage 
+        // and return a permanent URL instead
         return { 
             status: 'completed', 
             localPath: localFilePath,
-            imageUrl: publicImageUrl // Add the public URL for frontend access
+            imageUrl: publicImageUrl
+            // We can log the environment info here, but can't include it in the return value
+            // as it's not part of the ScreenshotJob type
         };
 
     } catch (error: any) {
@@ -221,16 +263,17 @@ export async function processScreenshotTask(taskId: string): Promise<void> {
     // --- End Set to processing ---
 
 
-    let browser: Browser | null = null;
+    let browser: PuppeteerBrowser | null = null;
     let completedCount = 0; // Tracks jobs completed in *this run*
     let errorCount = 0; // Tracks jobs failed in *this run*
     let wasCancelled = false; // Flag to track cancellation detection during *this run*
 
     try {
-        console.log(`[Task ${taskId}] Launching Puppeteer...`);
-        browser = await puppeteer.launch(puppeteerLaunchOptions);
-        const page: Page = await browser.newPage();
-        console.log(`[Task ${taskId}] Puppeteer launched successfully.`);
+        console.log(`[Task ${taskId}] Launching browser...`);
+        // Use our new dynamic browser function instead of direct puppeteer.launch
+        browser = await getBrowser();
+        const page = await browser.newPage();
+        console.log(`[Task ${taskId}] Browser launched successfully.`);
 
         // Iterate through jobs defined in the initial task object
         for (let i = 0; i < task.jobs.length; i++) {

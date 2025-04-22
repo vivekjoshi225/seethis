@@ -4,6 +4,9 @@ import fs from 'fs';
 import archiver from 'archiver';
 import { getTask } from '@/lib/task-store';
 
+// Detect Vercel environment
+const isVercelProduction = process.env.VERCEL === '1';
+
 // Make the handler async
 export default async function handler(
   req: NextApiRequest,
@@ -21,6 +24,8 @@ export default async function handler(
   }
 
   try {
+    console.log(`[API /download-zip] Environment: ${isVercelProduction ? 'Vercel' : 'Local'}`);
+    
     // Get task from the KV store
     const task = await getTask(taskId);
 
@@ -39,29 +44,43 @@ export default async function handler(
     }
 
     // Get the directory from the task
-    const taskDir = task.taskSpecificDir;
-    console.log(`[API /download-zip] Retrieved task directory from task: ${taskDir}`);
-
-    // Verify the directory exists
-    if (!fs.existsSync(taskDir)) {
-      // Try a fallback path if the saved path doesn't exist
-      console.warn(`[API /download-zip] Directory not found at saved path: ${taskDir}`);
-      
-      // Create a fallback path using the same pattern from start-task.ts
-      const fallbackTaskDir = path.join(process.cwd(), 'public', 'task_screenshots', taskId);
-      console.log(`[API /download-zip] Trying fallback directory: ${fallbackTaskDir}`);
-      
-      if (!fs.existsSync(fallbackTaskDir)) {
-        console.error(`[API /download-zip] Fallback directory also not found: ${fallbackTaskDir}`);
+    const originalTaskDir = task.taskSpecificDir;
+    console.log(`[API /download-zip] Original task directory: ${originalTaskDir}`);
+    
+    // In Vercel, we need to look in /tmp instead of the original path
+    const vercelTaskDir = path.join('/tmp/task_screenshots', taskId);
+    
+    // Try the appropriate directory first based on environment
+    const primaryDir = isVercelProduction ? vercelTaskDir : originalTaskDir;
+    const fallbackDir = isVercelProduction ? originalTaskDir : vercelTaskDir;
+    
+    console.log(`[API /download-zip] Trying primary directory: ${primaryDir}`);
+    
+    // Check if the primary directory exists
+    let taskDir: string;
+    if (fs.existsSync(primaryDir)) {
+      console.log(`[API /download-zip] Primary directory exists: ${primaryDir}`);
+      taskDir = primaryDir;
+    } else {
+      console.warn(`[API /download-zip] Primary directory not found, trying fallback: ${fallbackDir}`);
+      if (fs.existsSync(fallbackDir)) {
+        console.log(`[API /download-zip] Fallback directory exists: ${fallbackDir}`);
+        taskDir = fallbackDir;
+      } else {
+        console.error(`[API /download-zip] Both primary and fallback directories not found`);
         
-        // For debugging - list contents of the base screenshot directory
-        const baseDir = path.join(process.cwd(), 'public', 'task_screenshots');
-        if (fs.existsSync(baseDir)) {
-          console.log(`[API /download-zip] Contents of base directory ${baseDir}:`);
-          const contents = fs.readdirSync(baseDir);
-          console.log(contents);
-        } else {
-          console.error(`[API /download-zip] Base directory doesn't exist: ${baseDir}`);
+        // For debugging - list contents of possible parent directories
+        const possibleParentDirs = [
+          path.join(process.cwd(), 'public', 'task_screenshots'),
+          '/tmp/task_screenshots'
+        ];
+        
+        for (const dir of possibleParentDirs) {
+          if (fs.existsSync(dir)) {
+            console.log(`[API /download-zip] Contents of ${dir}:`, fs.readdirSync(dir));
+          } else {
+            console.error(`[API /download-zip] Directory doesn't exist: ${dir}`);
+          }
         }
         
         return res.status(404).json({ 
@@ -69,29 +88,6 @@ export default async function handler(
           details: 'Could not locate the directory containing screenshot files.'
         });
       }
-      
-      // Use the fallback directory if it exists
-      console.log(`[API /download-zip] Using fallback directory: ${fallbackTaskDir}`);
-      
-      // Set response headers
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename=screenshots-${taskId}.zip`);
-      
-      // Create a zip archive
-      const archive = archiver('zip', {
-        zlib: { level: 9 } // Maximum compression
-      });
-      
-      // Pipe archive data to the response
-      archive.pipe(res);
-      
-      // Append files from directory
-      archive.directory(fallbackTaskDir, false);
-      
-      // Finalize the archive
-      await archive.finalize();
-      console.log(`[API /download-zip] Successfully created zip for task: ${taskId} from fallback path`);
-      return;
     }
 
     // Task directory exists, proceed with zip creation

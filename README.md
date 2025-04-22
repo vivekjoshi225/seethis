@@ -1,8 +1,6 @@
-# Website Screenshot Tool (Standalone)
+# Website Screenshot Tool (Next.js)
 
-A Node.js web application using Express and Puppeteer to capture screenshots of multiple websites at various resolutions, with real-time progress updates via WebSockets.
-
-**Note:** This tool is designed to run independently. Ensure you have installed its dependencies in the main project's `node_modules` or create a dedicated `package.json` within this `screenshot-tool` directory and install them here.
+A Next.js web application using Puppeteer to capture screenshots of multiple websites at various resolutions, with real-time progress updates.
 
 ## Features
 
@@ -16,51 +14,108 @@ A Node.js web application using Express and Puppeteer to capture screenshots of 
     *   Shows current task status.
     *   Displays a progress table indicating success/error for each URL/resolution combo.
 *   **Download:** Provides a link to download a ZIP archive containing all captured screenshots upon completion.
-*   **Replit Ready:** Configured to run Puppeteer smoothly on Replit (`--no-sandbox`).
+*   **Vercel Compatible:** Configured to run smoothly on Vercel using Vercel KV and serverless-friendly Puppeteer.
 
-## Setup & Installation
+## Local Development
 
 1.  **Ensure you have Node.js installed.**
-2.  **Navigate to the `screenshot-tool` directory** in your terminal:
+2.  **Clone the repository** and navigate to the project directory:
     ```bash
+    git clone <repository-url>
     cd screenshot-tool
     ```
 3.  **Install required dependencies:**
-    *   *If using the parent project's `node_modules`:* Ensure `express`, `ws`, `puppeteer`, `fs-extra`, `archiver`, and `uuid` are installed in the root project.
-    *   *Alternatively (Recommended for separation):* Create a `package.json` inside this directory (`npm init -y`) and then run:
-        ```bash
-        npm install express ws puppeteer fs-extra archiver uuid
-        ```
-    *(Puppeteer might take a while to download Chromium the first time.)*
-
-## Running the Application
-
-1.  **Make sure you are inside the `screenshot-tool` directory** in your terminal.
-2.  **Start the server:**
     ```bash
-    node server.js
+    npm install
     ```
-3.  Open your web browser and navigate to `http://localhost:3001/admin/manage/screenshot-tool` (or the appropriate URL if running on Replit/other hosting, using port 3001).
+4.  **Start the development server:**
+    ```bash
+    npm run dev
+    ```
+5.  Open your web browser and navigate to `http://localhost:4000`
+
+## Vercel Deployment
+
+### Prerequisites
+
+- A [Vercel account](https://vercel.com/signup)
+- A GitHub, GitLab, or Bitbucket repository with your code
+- [Vercel CLI](https://vercel.com/docs/cli) (optional for local testing)
+
+### Step 1: Connect Your Repository to Vercel
+
+1. Push your code to GitHub, GitLab, or Bitbucket
+2. Go to [vercel.com](https://vercel.com) and sign in
+3. Click "Add New" → "Project"
+4. Select your repository
+5. Click "Import"
+
+### Step 2: Set Up Vercel KV (Required)
+
+1. In your Vercel dashboard, go to "Storage" in the sidebar
+2. Click "Create Database" and select "KV Database"
+3. Follow the setup wizard
+4. After creation, Vercel will provide you with environment variables:
+   - `KV_URL`
+   - `KV_REST_API_URL`
+   - `KV_REST_API_TOKEN`
+   - `KV_REST_API_READ_ONLY_TOKEN`
+
+### Step 3: Configure Environment Variables
+
+1. In your project settings on Vercel, go to "Environment Variables"
+2. Add all the KV variables from the previous step
+   - These should be automatically added if you created the KV store through Vercel
+
+### Step 4: Deploy
+
+1. Click "Deploy" in the Vercel dashboard
+2. Vercel will build and deploy your application
+3. You'll get a production URL for your application
+
+### Important Notes for Vercel Deployment
+
+1. **Puppeteer Configuration**: The application is already configured to use `@sparticuz/chromium` and `puppeteer-core` for Vercel compatibility.
+
+2. **File Storage**: On Vercel, screenshots are stored temporarily in the `/tmp` directory, which is ephemeral in serverless environments. This means:
+   - Screenshots will be available for download during the same user session
+   - They will be deleted when functions cold-start or after some time
+   - For persistent storage, consider using Vercel Blob (see below)
+
+3. **Function Limitations**:
+   - Serverless function timeout: 60s by default (may need to be increased for large batches)
+   - Memory limit: 1GB-4GB depending on plan
+   - Concurrent executions are limited based on your plan
+
+## Advanced: Using Vercel Blob Storage (Optional)
+
+For production environments where you need more persistent file storage:
+
+1. Install Vercel Blob:
+   ```bash
+   npm install @vercel/blob
+   ```
+
+2. Set up Blob Storage in your Vercel dashboard:
+   - Go to "Storage" → "Add" → "Blob Storage"
+   - Follow the setup wizard
+
+3. Modify `process-task.ts` to upload screenshots to Blob Storage instead of saving to local file system.
 
 ## Usage
 
-1.  **Open the web interface** in your browser.
-2.  **Enter URLs:** Paste website URLs, one per line.
-3.  **Enter Resolutions:** Input dimensions (width x height), one per line.
-4.  **Set Wait Time:** Enter optional wait time in milliseconds.
-5.  **Select Mode:** Choose screenshot mode (`viewport`, `full`, or `both`).
-6.  **Click "Generate Screenshots":**
-    *   The server will start the task.
-    *   The status text and progress table will update in real-time.
-    *   Cells turn green for success, red for error.
-    *   Once complete, a download link for `screenshots_<taskId>.zip` will appear.
-    *   Screenshots inside the zip are named like: `[hostname]_[width]x[height]_[mode].png`.
+1. **Enter URLs:** Paste website URLs, one per line.
+2. **Select Devices/Dimensions:** Choose from preset device dimensions or add custom ones.
+3. **Set Wait Time:** Enter optional wait time in milliseconds (0-5000).
+4. **Select Mode:** Choose screenshot mode (`viewport`, `fullPage`, or `both`).
+5. **Click "Generate Screenshots":**
+   - The server will start the task and show real-time progress.
+   - Once complete, a download link for the ZIP file will appear.
 
 ## File Structure
 
-*   `server.js`: The Express/WebSocket application logic.
-*   `index.html`: The frontend HTML form and WebSocket client.
-*   `public/`: Directory for temporary task files.
-    *   `task_screenshots/`: Temporary storage for generated screenshots (one subdir per task).
-    *   `zips/`: Temporary storage for generated zip files.
-*   `README.md`: This file. 
+- `/pages`: Next.js pages including API routes
+- `/components`: React components
+- `/lib`: Utility functions and core functionality
+- `/public`: Static assets and screenshot storage (local dev only)
+- `/types`: TypeScript type definitions 
