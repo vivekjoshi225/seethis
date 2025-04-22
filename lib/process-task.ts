@@ -17,41 +17,62 @@ type PuppeteerPage = any;
 // 3. File Storage: In production, /tmp could be used but files won't persist.
 //    For production, consider Vercel Blob Storage instead.
 
-// Environment detection helper
+// Add more detailed logging after environment detection
 const isVercelProduction = process.env.VERCEL === '1';
 console.log(`[Environment] Running in ${isVercelProduction ? 'Vercel production' : 'local development'} mode`);
 
+// Log Node.js version and platform info
+console.log(`[Environment] Node.js version: ${process.version}`);
+console.log(`[Environment] Platform: ${process.platform}`);
+console.log(`[Environment] Current working directory: ${process.cwd()}`);
+
 // Dynamic browser initialization
 async function getBrowser(): Promise<PuppeteerBrowser> {
-  if (isVercelProduction) {
-    console.log('[Browser] Using @sparticuz/chromium for Vercel environment');
-    // Dynamic imports for Vercel environment
-    const puppeteerCore = await import('puppeteer-core');
-    const chromium = await import('@sparticuz/chromium');
-    
-    return puppeteerCore.default.launch({
-      args: chromium.default.args,
-      defaultViewport: { width: 1280, height: 720 },
-      executablePath: await chromium.default.executablePath(),
-      headless: chromium.default.headless,
-    });
-  } else {
-    console.log('[Browser] Using standard Puppeteer for local environment');
-    // Dynamic import for local environment
-    const puppeteer = await import('puppeteer');
-    
-    return puppeteer.default.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    });
+  try {
+    if (isVercelProduction) {
+      console.log('[Browser] Using @sparticuz/chromium for Vercel environment - START');
+      // Dynamic imports for Vercel environment
+      console.log('[Browser] Importing puppeteer-core and chromium...');
+      const puppeteerCore = await import('puppeteer-core');
+      const chromium = await import('@sparticuz/chromium');
+      
+      console.log('[Browser] Imports successful, preparing launch options...');
+      const launchOptions = {
+        args: chromium.default.args,
+        defaultViewport: { width: 1280, height: 720 },
+        executablePath: await chromium.default.executablePath(),
+        headless: chromium.default.headless,
+      };
+      
+      console.log('[Browser] Launch options prepared:', JSON.stringify(launchOptions, null, 2));
+      console.log('[Browser] Attempting to launch browser...');
+      const browser = await puppeteerCore.default.launch(launchOptions);
+      console.log('[Browser] Browser launch successful');
+      return browser;
+    } else {
+      console.log('[Browser] Using standard Puppeteer for local environment - START');
+      // Dynamic import for local environment
+      const puppeteer = await import('puppeteer');
+      
+      console.log('[Browser] Launching standard Puppeteer...');
+      const browser = await puppeteer.default.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu'
+        ]
+      });
+      console.log('[Browser] Standard Puppeteer launch successful');
+      return browser;
+    }
+  } catch (error) {
+    console.error('[Browser] CRITICAL ERROR launching browser:', error);
+    throw error; // Re-throw to be caught by the main processing function
   }
 }
 
@@ -235,14 +256,20 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
 
 
 export async function processScreenshotTask(taskId: string): Promise<void> {
+    console.log(`[Process Task] Starting process for task ${taskId}`);
+    
     // Initial task fetch
+    console.log(`[Process Task] Fetching task ${taskId} from KV store...`);
     let task = await getTask(taskId);
+    console.log(`[Process Task] Task fetch result: ${task ? 'Task found' : 'Task not found'}`);
+    
     if (!task) {
         console.error(`[Process Task] Task ${taskId} not found in store. Cannot process.`);
         return; // Task doesn't exist, nothing to process
     }
 
-    // Initial status check (no change needed here)
+    // More detailed status check
+    console.log(`[Process Task] Task ${taskId} status: ${task.status}, Jobs: ${task.jobs.length}`);
     if (task.status !== 'pending' && task.status !== 'processing') {
         console.warn(`[Process Task] Task ${taskId} already has status ${task.status}, skipping processing.`);
         return;
@@ -253,28 +280,31 @@ export async function processScreenshotTask(taskId: string): Promise<void> {
     task.status = 'processing';
     task.error = undefined; // Clear any previous errors when starting processing
     try {
+        console.log(`[Process Task] Updating KV store with processing status...`);
         await setTask(taskId, task); // NEW - Update KV store immediately
         console.log(`[Process Task] Task ${taskId} status set to processing in store. Starting ${task.jobs.length} jobs.`);
     } catch (storeError) {
-         console.error(`[Process Task] Failed to set task ${taskId} status to processing in store. Aborting.`, storeError);
+         console.error(`[Process Task] CRITICAL ERROR: Failed to set task ${taskId} status to processing in store:`, storeError);
          // Optionally, try to set status to error here, but might also fail
          return;
     }
     // --- End Set to processing ---
 
-
+    // More logging during browser initialization
     let browser: PuppeteerBrowser | null = null;
     let completedCount = 0; // Tracks jobs completed in *this run*
     let errorCount = 0; // Tracks jobs failed in *this run*
     let wasCancelled = false; // Flag to track cancellation detection during *this run*
 
     try {
-        console.log(`[Task ${taskId}] Launching browser...`);
-        // Use our new dynamic browser function instead of direct puppeteer.launch
+        console.log(`[Task ${taskId}] Launching browser - STARTING`);
         browser = await getBrowser();
+        console.log(`[Task ${taskId}] Browser launched successfully, creating new page...`);
         const page = await browser.newPage();
-        console.log(`[Task ${taskId}] Browser launched successfully.`);
+        console.log(`[Task ${taskId}] Page created successfully`);
 
+        console.log(`[Task ${taskId}] Beginning to process ${task.jobs.length} jobs...`);
+        
         // Iterate through jobs defined in the initial task object
         for (let i = 0; i < task.jobs.length; i++) {
              // --- Check for cancellation before processing each job ---
@@ -389,8 +419,12 @@ export async function processScreenshotTask(taskId: string): Promise<void> {
         } // End of job loop
 
     } catch (error: any) {
-        // This catches major errors in the overall processing loop (e.g., Puppeteer launch failure)
-        console.error(`[Process Task] Catastrophic error during task ${taskId} execution:`, error);
+        console.error(`[Process Task] CRITICAL ERROR during task ${taskId} execution:`, error);
+        console.error(`[Process Task] Error stack:`, error.stack);
+        // Log more details about the error
+        console.error(`[Process Task] Error is instance of:`, error.constructor.name);
+        console.error(`[Process Task] Error message:`, error.message);
+        
         errorCount = task ? task.jobs.length - completedCount : 0; // Mark remaining jobs as errors if task object exists
 
         // Attempt to fetch latest state before updating error status
@@ -418,17 +452,17 @@ export async function processScreenshotTask(taskId: string): Promise<void> {
         }
 
     } finally {
-        // Ensure browser is definitely closed
+        // More logging in browser cleanup
         if (browser) {
-            console.log(`[Task ${taskId}] Closing browser in finally block...`);
+            console.log(`[Task ${taskId}] Closing browser - STARTING`);
             try {
                 await browser.close();
-                console.log(`[Task ${taskId}] Browser closed successfully.`);
+                console.log(`[Task ${taskId}] Browser closed successfully`);
             } catch (e: any) {
-                 console.error(`[Task ${taskId}] Failed to close browser in finally block:`, e);
+                 console.error(`[Task ${taskId}] Failed to close browser:`, e);
             }
         } else {
-             console.log(`[Task ${taskId}] No active browser instance to close in finally block.`);
+             console.log(`[Task ${taskId}] No active browser instance to close`);
         }
 
 

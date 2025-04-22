@@ -43,4 +43,14 @@ export interface TaskStatusResponse {
   jobs: ScreenshotJob[]; // Array of individual jobs within the task
   error?: string | null; // Overall task error, if any
   zipReady?: boolean; // Indicate if zip file is ready for download
+  debug?: {
+    env: string;
+    nodeVersion: string;
+    timestamp: string;
+    pendingCount?: number;
+    processingCount?: number;
+    completedCount?: number;
+    errorCount?: number;
+    [key: string]: any; // Allow for additional debug properties
+  };
 } 

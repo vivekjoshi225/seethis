@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "functions": {
+    "pages/api/screenshot.ts": {
+      "memory": 3008,
+      "maxDuration": 300
+    },
+    "pages/api/start-task.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "pages/api/cancel-task.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "pages/api/task-status.ts": {
+      "memory": 1024,
+      "maxDuration": 10
+    },
+    "pages/api/download-zip.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
+} 
