@@ -113,8 +113,8 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
     const publicImageUrl = `/task_screenshots/${taskId}/${filename}`;
 
     try {
-        // Cap the wait time at 7000ms as a final safeguard
-        const waitMs = Math.min(initialWaitMs || 0, 7000);
+        // Cap the wait time at 5000ms as a final safeguard
+        const waitMs = Math.min(initialWaitMs || 0, 5000);
 
         console.log(`[Task ${taskId}] Processing job ${jobId}: ${url} (${dimension}, ${screenshotType}, wait: ${waitMs}ms)`);
         

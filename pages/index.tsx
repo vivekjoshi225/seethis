@@ -53,7 +53,7 @@ const formSchema = z.object({
         return lines.every(line => dimensionRegex.test(line));
     }, 'Invalid dimension format detected. Use WxH if manually entering.'), // Keep basic format check?
   screenshotType: z.enum(['viewport', 'fullPage', 'both']).default(DEFAULT_FORM_VALUES.screenshotType), // Use default from const
-  waitMs: z.coerce.number().int().min(0).max(7000).optional().default(DEFAULT_FORM_VALUES.waitMs), // Use default from const
+  waitMs: z.coerce.number().int().min(0).max(5000).optional().default(DEFAULT_FORM_VALUES.waitMs), // Use default from const
 });
 type FormData = z.infer<typeof formSchema>;
 
@@ -421,12 +421,12 @@ export default function Home() {
                         placeholder="e.g., 500" 
                         className="mt-1"
                         min={0}
-                        max={7000}
+                        max={5000}
                         step={100}
                         {...register('waitMs')}
                         disabled={isSubmitting || isPolling}
                       />
-                      <p className="text-xs text-muted-foreground">Delay before taking screenshot (0-7000ms).</p>
+                      <p className="text-xs text-muted-foreground">Delay before taking screenshot (0-5000ms).</p>
                      {errors.waitMs && <p className="text-sm font-medium text-destructive mt-1">{errors.waitMs.message}</p>}
                   </div>
               </div>

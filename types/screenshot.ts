@@ -30,7 +30,7 @@ export const startTaskSchema = z.object({
   urls: z.array(z.string().url({ message: "Invalid URL format provided." })).min(1, "At least one URL is required."),
   dimensions: z.array(z.string().regex(/^\d+x\d+$/, { message: "Invalid dimension format. Use WxH (e.g., 1920x1080)." })).min(1, "At least one dimension is required."),
   screenshotType: z.enum(['viewport', 'fullPage', 'both']),
-  waitMs: z.coerce.number().int().min(0, 'Wait time must be 0 or greater').max(7000, 'Wait time cannot exceed 7000ms').optional().default(0),
+  waitMs: z.coerce.number().int().min(0, 'Wait time must be 0 or greater').max(5000, 'Wait time cannot exceed 5000ms').optional().default(0),
 });
 
 export type StartTaskPayload = z.infer<typeof startTaskSchema>;
