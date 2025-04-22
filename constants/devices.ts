@@ -14,15 +14,21 @@ export const POPULAR_DEVICES: DeviceInfo[] = [
     { name: 'Samsung Galaxy S22 / S23', dimension: '360x780' },
     { name: 'Samsung Galaxy S22 / S23 Ultra', dimension: '384x854' },
     { name: 'Samsung Galaxy Z Fold (Unfolded)', dimension: '673x841' },
+    { name: 'Samsung Galaxy Z Fold (Unfolded) (Landscape)', dimension: '841x673' },
     { name: 'Google Pixel 6', dimension: '412x915' },
     { name: 'Google Pixel 7 Pro', dimension: '412x892' },
 
     // Tablets
     { name: 'iPad (10th Gen)', dimension: '820x1180' },
+    { name: 'iPad (10th Gen) (Landscape)', dimension: '1180x820' },
     { name: 'iPad Mini 6', dimension: '744x1133' },
+    { name: 'iPad Mini 6 (Landscape)', dimension: '1133x744' },
     { name: 'iPad Air (5th Gen)', dimension: '820x1180' },
+    { name: 'iPad Air (5th Gen) (Landscape)', dimension: '1180x820' },
     { name: 'iPad Pro 11"', dimension: '834x1194' },
+    { name: 'iPad Pro 11" (Landscape)', dimension: '1194x834' },
     { name: 'iPad Pro 12.9"', dimension: '1024x1366' },
+    { name: 'iPad Pro 12.9" (Landscape)', dimension: '1366x1024' },
 
     // Laptops / Desktops
     { name: 'MacBook Air 13" (M1)', dimension: '1440x900' },
@@ -40,6 +46,7 @@ export const POPULAR_DEVICES: DeviceInfo[] = [
     { name: 'Common Mobile Medium (Approx)', dimension: '375x812' },
     { name: 'Common Mobile Large (Approx)', dimension: '414x896' },
     { name: 'Common Tablet (Portrait)', dimension: '768x1024' },
+    { name: 'Common Tablet (Landscape)', dimension: '1024x768' },
 ];
 
 // Optional: Map for quick lookup if needed, though filtering the array might be sufficient
