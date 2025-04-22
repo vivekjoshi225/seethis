@@ -1,8 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import taskStore from '@/lib/task-store';
+import { getTask } from '@/lib/task-store'; // NEW
 import { TaskStatusResponse } from '@/types/screenshot';
 
-export default function handler(
+// Make handler async
+export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<TaskStatusResponse | { error: string }>
 ) {
@@ -17,12 +18,18 @@ export default function handler(
     return res.status(400).json({ error: 'Missing or invalid taskId query parameter.' });
   }
 
-  // --- DEBUG LOGGING ---
-  console.log(`[API /task-status] Checking for taskId: ${taskId}. Current store size: ${taskStore.size}`);
-  console.log(`[API /task-status] Store keys: ${JSON.stringify(Array.from(taskStore.keys()))}`);
+  // --- Simplified DEBUG LOGGING ---
+  console.log(`[API /task-status] Checking status for taskId: ${taskId}`);
+  // Removed store size/keys logging as it's not directly applicable/efficient with KV store
   // --- END DEBUG LOGGING ---
 
-  const task = taskStore.get(taskId);
+  let task;
+  try {
+    task = await getTask(taskId); // NEW
+  } catch (error: any) {
+    console.error(`[API /download-zip] Error fetching task ${taskId} from store:`, error);
+    return res.status(500).json({ error: `Failed to retrieve task details. Store error: ${error.message}` });
+  }
 
   if (!task) {
     // console.error(`[API /task-status] Task ${taskId} not found in store!`); // Keep console error if desired
@@ -34,7 +41,7 @@ export default function handler(
     taskId: task.taskId,
     status: task.status,
     jobs: task.jobs,
-    error: task.error || null,
+    error: task.error || null, // Ensure error is null if undefined
   };
 
   res.status(200).json(response);

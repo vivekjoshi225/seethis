@@ -1,9 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import archiver from 'archiver';
-import fs from 'fs-extra';
 import path from 'path';
-import taskStore from '@/lib/task-store';
+import fs from 'fs';
+import archiver from 'archiver';
+import { getTask } from '@/lib/task-store';
 
+// Make the handler async
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -15,88 +16,133 @@ export default async function handler(
 
   const { taskId } = req.query;
 
-  if (!taskId || typeof taskId !== 'string') {
-    return res.status(400).json({ error: 'Missing or invalid taskId query parameter.' });
+  if (!taskId || Array.isArray(taskId)) {
+    return res.status(400).json({ error: 'Invalid taskId parameter' });
   }
 
-  const task = taskStore.get(taskId);
-
-  if (!task) {
-    return res.status(404).json({ error: `Task with ID ${taskId} not found.` });
-  }
-
-  // Only allow download if task is completed or partially completed
-  if (task.status !== 'completed' && task.status !== 'partially_completed') {
-    return res.status(400).json({ error: `Task ${taskId} is not yet complete. Current status: ${task.status}` });
-  }
-
-  const directoryToZip = task.taskSpecificDir;
-  if (!fs.existsSync(directoryToZip)) {
-      console.error(`[API /download-zip] Directory not found for task ${taskId}: ${directoryToZip}`);
-      return res.status(500).json({ error: 'Task output directory not found.' });
-  }
-
-  const zipFilename = `screenshots_${taskId}.zip`;
-  
   try {
-    console.log(`[API /download-zip] Creating zip for task ${taskId} from dir: ${directoryToZip}`);
-    
-    // Set headers for file download
+    // Get task from the KV store
+    const task = await getTask(taskId);
+
+    if (!task) {
+      console.error(`[API /download-zip] Task not found: ${taskId}`);
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // Ensure the task is in completed or partially_completed state
+    if (task.status !== 'completed' && task.status !== 'partially_completed') {
+      console.warn(`[API /download-zip] Task not in downloadable state: ${taskId} (status: ${task.status})`);
+      return res.status(400).json({ 
+        error: 'Task is not in a downloadable state',
+        status: task.status 
+      });
+    }
+
+    // Get the directory from the task
+    const taskDir = task.taskSpecificDir;
+    console.log(`[API /download-zip] Retrieved task directory from task: ${taskDir}`);
+
+    // Verify the directory exists
+    if (!fs.existsSync(taskDir)) {
+      // Try a fallback path if the saved path doesn't exist
+      console.warn(`[API /download-zip] Directory not found at saved path: ${taskDir}`);
+      
+      // Create a fallback path using the same pattern from start-task.ts
+      const fallbackTaskDir = path.join(process.cwd(), 'public', 'task_screenshots', taskId);
+      console.log(`[API /download-zip] Trying fallback directory: ${fallbackTaskDir}`);
+      
+      if (!fs.existsSync(fallbackTaskDir)) {
+        console.error(`[API /download-zip] Fallback directory also not found: ${fallbackTaskDir}`);
+        
+        // For debugging - list contents of the base screenshot directory
+        const baseDir = path.join(process.cwd(), 'public', 'task_screenshots');
+        if (fs.existsSync(baseDir)) {
+          console.log(`[API /download-zip] Contents of base directory ${baseDir}:`);
+          const contents = fs.readdirSync(baseDir);
+          console.log(contents);
+        } else {
+          console.error(`[API /download-zip] Base directory doesn't exist: ${baseDir}`);
+        }
+        
+        return res.status(404).json({ 
+          error: 'Screenshots directory not found', 
+          details: 'Could not locate the directory containing screenshot files.'
+        });
+      }
+      
+      // Use the fallback directory if it exists
+      console.log(`[API /download-zip] Using fallback directory: ${fallbackTaskDir}`);
+      
+      // Set response headers
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename=screenshots-${taskId}.zip`);
+      
+      // Create a zip archive
+      const archive = archiver('zip', {
+        zlib: { level: 9 } // Maximum compression
+      });
+      
+      // Pipe archive data to the response
+      archive.pipe(res);
+      
+      // Append files from directory
+      archive.directory(fallbackTaskDir, false);
+      
+      // Finalize the archive
+      await archive.finalize();
+      console.log(`[API /download-zip] Successfully created zip for task: ${taskId} from fallback path`);
+      return;
+    }
+
+    // Task directory exists, proceed with zip creation
+    console.log(`[API /download-zip] Creating zip from directory: ${taskDir}`);
+
+    // Set response headers
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename=${zipFilename}`);
+    res.setHeader('Content-Disposition', `attachment; filename=screenshots-${taskId}.zip`);
 
+    // Create a zip archive
     const archive = archiver('zip', {
-      zlib: { level: 9 } // Sets the compression level.
+      zlib: { level: 9 } // Maximum compression
     });
 
-    // Handle warnings and errors during archiving
-    archive.on('warning', function(err: archiver.ArchiverError) {
-      if (err.code === 'ENOENT') {
-        console.warn(`[Archiver Warning - Task ${taskId}]: ${err}`);
-      } else {
-        console.error(`[Archiver Error - Task ${taskId}]: ${err}`);
-        // Don't throw here, let it try to finish
-      }
+    // Log warnings during archiving
+    archive.on('warning', function(err) {
+      console.warn(`[API /download-zip] Warning during archive creation:`, err);
     });
 
-    archive.on('error', function(err: Error) {
-      console.error(`[Archiver Error - Task ${taskId}]: Critical error during zip creation: ${err}`);
-      // Ensure response ends if headers not sent yet
+    // Log errors during archiving
+    archive.on('error', function(err) {
+      console.error(`[API /download-zip] Error during archive creation:`, err);
       if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to create zip file.'});
+        res.status(500).json({ error: 'Failed to create archive' });
       } else {
-          res.end(); // End the stream if possible
+        res.end();
       }
     });
 
-    // Pipe the archive data to the response
+    // Pipe archive data to the response
     archive.pipe(res);
 
-    // Add the directory contents to the zip archive
-    // The second argument is the path prefix inside the zip file (false means no prefix)
-    archive.directory(directoryToZip, false);
+    // List directory contents for debugging
+    console.log(`[API /download-zip] Contents of directory ${taskDir}:`, fs.readdirSync(taskDir));
 
-    // Finalize the archive (writes the central directory)
+    // Append files from directory
+    archive.directory(taskDir, false);
+
+    // Finalize the archive
     await archive.finalize();
-    console.log(`[API /download-zip] Zip file for task ${taskId} finalized and sent.`);
-
-    // --- Cleanup --- 
-    // Optionally clean up the task directory after successful download
-    // Be cautious with cleanup; if the user needs to download again, it will fail.
-    // Consider a separate cleanup mechanism or delaying cleanup.
-    // console.log(`[API /download-zip] Cleaning up directory for task ${taskId}: ${directoryToZip}`);
-    // fs.remove(directoryToZip).catch(err => {
-    //     console.error(`[API /download-zip] Error cleaning up directory ${directoryToZip}:`, err);
-    // });
-    // Task removal from store might happen here or elsewhere (e.g., after a TTL)
-    // taskStore.delete(taskId);
-
+    console.log(`[API /download-zip] Successfully created zip for task: ${taskId} from: ${taskDir}`);
   } catch (error: any) {
-    console.error(`[API /download-zip] Failed to create or send zip for task ${taskId}:`, error);
-     if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to create or send zip file.', details: error.message });
-     } else {
-         res.end();
-     }
+    console.error(`[API /download-zip] Error processing task ${taskId}:`, error);
+    // If headers have already been sent, we can't send a JSON error
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: `Error creating zip file: ${error.message}` 
+      });
+    } else {
+      // Force end the response to avoid hanging
+      res.end();
+    }
   }
 } 

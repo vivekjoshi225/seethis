@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import taskStore from '@/lib/task-store';
+import { setTask, getTask } from '@/lib/task-store';
 import { processScreenshotTask } from '@/lib/process-task'; // This will need to handle dir creation
 import {
   ScreenshotJob,
@@ -15,7 +15,8 @@ import {
 const BASE_TASK_SCREENSHOT_DIR = path.join(process.cwd(), 'public', 'task_screenshots');
 // No fs.ensureDirSync here
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+// Make handler async
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
@@ -83,18 +84,31 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     createdAt: Date.now(),
     taskSpecificDir, // Include the path for the background task
   };
-  taskStore.set(taskId, newTask); // This should now satisfy the type checker
-  console.log(`[API /start-task] Task ${taskId} created. Jobs: ${jobs.length} (Type: ${screenshotType}, Wait: ${waitMs}ms), Path: ${taskSpecificDir}`);
+
+  // --- Save the initial task state to KV Store ---
+  try {
+    // await setTask(taskId, newTask); // OLD
+    await setTask(taskId, newTask); // NEW - now wrapped in try...catch
+    console.log(`[API /start-task] Task ${taskId} created. Jobs: ${jobs.length} (Type: ${screenshotType}, Wait: ${waitMs}ms), Path: ${taskSpecificDir}`);
+  } catch (error: any) {
+      console.error(`[API /start-task] Failed to save initial task ${taskId} to KV store:`, error);
+      // Return a specific error indicating the failure to save the task
+      return res.status(500).json({ error: `Failed to initialize task in storage. Please check KV connection details/status. Original error: ${error.message}` });
+  }
+  // --- End Save Task ---
 
   // Start processing asynchronously (don't await)
-  processScreenshotTask(taskId).catch((error: Error) => {
+  // Need to handle potential errors during the async call within the catch
+  processScreenshotTask(taskId).catch(async (error: Error) => { // Make catch block async
     console.error(`[API /start-task] Background processing failed for task ${taskId}:`, error);
     // Update task status to error if background processing fails immediately
-    const task = taskStore.get(taskId);
+    // const task = taskStore.get(taskId); // OLD
+    const task = await getTask(taskId); // NEW
     if (task) {
       task.status = 'error';
       task.error = 'Background processing failed to start.';
-      taskStore.set(taskId, task);
+      // taskStore.set(taskId, task); // OLD
+      await setTask(taskId, task); // NEW
     }
   });
 
