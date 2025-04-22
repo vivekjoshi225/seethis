@@ -56,7 +56,7 @@ async function getBrowser(): Promise<PuppeteerBrowser> {
       }
       console.log('[Browser] Launch options prepared:', JSON.stringify(launchOptions, null, 2));
       try {
-        console.log('[Browser] Attempting to launch browser with puppeteer-core...');
+        console.log('[Browser] About to call puppeteer-core.launch() with options:', JSON.stringify(launchOptions, null, 2));
         const browser = await puppeteerCore.default.launch(launchOptions);
         console.log('[Browser] Browser launch successful');
         return browser;
@@ -82,7 +82,18 @@ async function getBrowser(): Promise<PuppeteerBrowser> {
         throw e;
       }
       try {
-        console.log('[Browser] Launching standard Puppeteer...');
+        console.log('[Browser] About to call puppeteer.launch() with options:', JSON.stringify({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+          ]
+        }, null, 2));
         const browser = await puppeteer.default.launch({
           headless: true,
           args: [
