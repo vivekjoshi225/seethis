@@ -119,3 +119,5 @@ For production environments where you need more persistent file storage:
 - `/lib`: Utility functions and core functionality
 - `/public`: Static assets and screenshot storage (local dev only)
 - `/types`: TypeScript type definitions 
+
+## Line added just to trigger the Vercel Deployment.
