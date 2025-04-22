@@ -349,10 +349,8 @@ export default function Home() {
                     <Label htmlFor="urls">URLs (One per line)</Label>
                     <Textarea
                       id="urls"
-                      placeholder={`https://facebook.com
-https://youtube.com`}
-                      className="mt-1 font-mono" // Monospace helps with alignment
-                      rows={5}
+                      placeholder={`https://facebook.com\nhttps://youtube.com`}
+                      className="mt-1 font-mono h-28" // Monospace helps with alignment, Added h-28
                       {...register('urls')}
                       disabled={isSubmitting || isPolling}
                     />

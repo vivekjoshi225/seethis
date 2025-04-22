@@ -127,10 +127,10 @@ export const DeviceDimensionInput = React.forwardRef<
         >
             {/* --- Input Area (Chips + Input) --- */}
             <div className={cn(
-                "group flex min-h-[38px] w-full items-center rounded-md border border-input bg-transparent px-3 py-1 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+                "group flex h-28 w-full items-start rounded-md border border-input bg-transparent px-3 py-1 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
                 className // Allow external classes
             )}>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 items-center">
                     {/* Render Selected Device Chips */}
                     {selectedDevices.map((device: DeviceInfo) => (
                         <Badge key={device.dimension} variant="secondary" className="whitespace-nowrap max-w-[200px]">
@@ -165,7 +165,7 @@ export const DeviceDimensionInput = React.forwardRef<
                         onFocus={() => setIsOpen(true)} // Use the simpler focus handler
                         placeholder={selectedDevices.length === 0 ? placeholder : "Add another device..."} // Updated dynamic placeholder
                         disabled={disabled}
-                        className="ml-2 flex-1 bg-transparent outline-none placeholder:text-muted-foreground text-sm py-1.5"
+                        className="ml-2 flex-1 bg-transparent outline-none placeholder:text-muted-foreground text-sm py-1.5 text-white"
                     />
                 </div>
             </div>
