@@ -35,43 +35,87 @@ async function getBrowser(): Promise<PuppeteerBrowser> {
       console.log('[Browser] Importing puppeteer-core and chromium...');
       const puppeteerCore = await import('puppeteer-core');
       const chromium = await import('@sparticuz/chromium');
-      
       console.log('[Browser] Imports successful, preparing launch options...');
-      const launchOptions = {
+      let executablePath: string | undefined;
+      try {
+        const resolvedPath = await chromium.default.executablePath();
+        executablePath = resolvedPath || undefined;
+        console.log('[Browser] chromium.default.executablePath() resolved:', executablePath);
+      } catch (e) {
+        console.error('[Browser] Error resolving chromium.default.executablePath:', e);
+      }
+      const launchOptions: Record<string, any> = {
         args: chromium.default.args,
         defaultViewport: { width: 1280, height: 720 },
-        executablePath: await chromium.default.executablePath(),
         headless: chromium.default.headless,
       };
-      
+      if (executablePath) {
+        launchOptions.executablePath = executablePath;
+      } else {
+        console.error('[Browser] executablePath is null or undefined! Puppeteer may fail to launch.');
+      }
       console.log('[Browser] Launch options prepared:', JSON.stringify(launchOptions, null, 2));
-      console.log('[Browser] Attempting to launch browser...');
-      const browser = await puppeteerCore.default.launch(launchOptions);
-      console.log('[Browser] Browser launch successful');
-      return browser;
+      try {
+        console.log('[Browser] Attempting to launch browser with puppeteer-core...');
+        const browser = await puppeteerCore.default.launch(launchOptions);
+        console.log('[Browser] Browser launch successful');
+        return browser;
+      } catch (error) {
+        console.error('[Browser] CRITICAL ERROR launching browser:', error);
+        if (error && typeof error === 'object' && 'message' in error) {
+          console.error('[Browser] Error message:', (error as any).message);
+        }
+        if (error && typeof error === 'object' && 'stack' in error) {
+          console.error('[Browser] Error stack:', (error as any).stack);
+        }
+        throw error; // Re-throw to be caught by the main processing function
+      }
     } else {
       console.log('[Browser] Using standard Puppeteer for local environment - START');
       // Dynamic import for local environment
-      const puppeteer = await import('puppeteer');
-      
-      console.log('[Browser] Launching standard Puppeteer...');
-      const browser = await puppeteer.default.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu'
-        ]
-      });
-      console.log('[Browser] Standard Puppeteer launch successful');
-      return browser;
+      let puppeteer: any;
+      try {
+        puppeteer = await import('puppeteer');
+        console.log('[Browser] puppeteer import successful');
+      } catch (e) {
+        console.error('[Browser] Error importing puppeteer:', e);
+        throw e;
+      }
+      try {
+        console.log('[Browser] Launching standard Puppeteer...');
+        const browser = await puppeteer.default.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+          ]
+        });
+        console.log('[Browser] Standard Puppeteer launch successful');
+        return browser;
+      } catch (error) {
+        console.error('[Browser] CRITICAL ERROR launching standard Puppeteer:', error);
+        if (error && typeof error === 'object' && 'message' in error) {
+          console.error('[Browser] Error message:', (error as any).message);
+        }
+        if (error && typeof error === 'object' && 'stack' in error) {
+          console.error('[Browser] Error stack:', (error as any).stack);
+        }
+        throw error;
+      }
     }
   } catch (error) {
-    console.error('[Browser] CRITICAL ERROR launching browser:', error);
+    console.error('[Browser] UNHANDLED ERROR in getBrowser:', error);
+    if (error && typeof error === 'object' && 'message' in error) {
+      console.error('[Browser] Error message:', (error as any).message);
+    }
+    if (error && typeof error === 'object' && 'stack' in error) {
+      console.error('[Browser] Error stack:', (error as any).stack);
+    }
     throw error; // Re-throw to be caught by the main processing function
   }
 }
@@ -198,12 +242,21 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
     try {
         // Cap the wait time at 5000ms as a final safeguard
         const waitMs = Math.min(initialWaitMs || 0, 5000);
-
         console.log(`[Task ${taskId}] Processing job ${jobId}: ${url} (${dimension}, ${screenshotType}, wait: ${waitMs}ms)`);
-
-        await page.setViewport({ width, height });
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: NAVIGATION_TIMEOUT });
-
+        try {
+          await page.setViewport({ width, height });
+          console.log(`[Task ${taskId}] setViewport success for job ${jobId}`);
+        } catch (e) {
+          console.error(`[Task ${taskId}] setViewport failed for job ${jobId}:`, e);
+          throw e;
+        }
+        try {
+          await page.goto(url, { waitUntil: 'networkidle2', timeout: NAVIGATION_TIMEOUT });
+          console.log(`[Task ${taskId}] goto success for job ${jobId}`);
+        } catch (e) {
+          console.error(`[Task ${taskId}] goto failed for job ${jobId}:`, e);
+          throw e;
+        }
         // --- Add Delay if specified (using the capped value) ---
         if (waitMs > 0) {
             console.log(`[Task ${taskId}] Waiting ${waitMs}ms for job ${jobId}...`);
@@ -211,14 +264,18 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
             console.log(`[Task ${taskId}] Wait finished for job ${jobId}.`);
         }
         // --- End Delay ---
-
         const isFullPage = screenshotType === 'fullPage';
-        await page.screenshot({
-            path: localFilePath,
-            fullPage: isFullPage,
-            type: 'png'
-        });
-
+        try {
+          await page.screenshot({
+              path: localFilePath,
+              fullPage: isFullPage,
+              type: 'png'
+          });
+          console.log(`[Task ${taskId}] Screenshot success for job ${jobId}: ${localFilePath}`);
+        } catch (e) {
+          console.error(`[Task ${taskId}] Screenshot failed for job ${jobId}:`, e);
+          throw e;
+        }
         console.log(`[Task ${taskId}] Screenshot saved for job ${jobId}: ${localFilePath}`);
         
         // Return result including both paths
@@ -234,6 +291,12 @@ async function processSingleJob(job: ScreenshotJob, task: ScreenshotTask, page: 
 
     } catch (error: any) {
         console.error(`[Task ${taskId}] Error processing job ${jobId} (${url}):`, error);
+        if (error && typeof error === 'object' && 'message' in error) {
+          console.error(`[Task ${taskId}] Error message:`, (error as any).message);
+        }
+        if (error && typeof error === 'object' && 'stack' in error) {
+          console.error(`[Task ${taskId}] Error stack:`, (error as any).stack);
+        }
         let errorMessage = 'Failed to capture screenshot.';
         if (error instanceof Error) {
             if (error.message.includes('net::ERR_NAME_NOT_RESOLVED')) {
@@ -300,8 +363,14 @@ export async function processScreenshotTask(taskId: string): Promise<void> {
         console.log(`[Task ${taskId}] Launching browser - STARTING`);
         browser = await getBrowser();
         console.log(`[Task ${taskId}] Browser launched successfully, creating new page...`);
-        const page = await browser.newPage();
-        console.log(`[Task ${taskId}] Page created successfully`);
+        let page: PuppeteerPage;
+        try {
+          page = await browser.newPage();
+          console.log(`[Task ${taskId}] Page created successfully`);
+        } catch (e) {
+          console.error(`[Task ${taskId}] Error creating new page:`, e);
+          throw e;
+        }
 
         console.log(`[Task ${taskId}] Beginning to process ${task.jobs.length} jobs...`);
         
