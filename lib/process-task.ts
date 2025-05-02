@@ -3,6 +3,7 @@ import fs from 'fs-extra';
 import { URL } from 'url';
 import { getTask, setTask } from '@/lib/task-store';
 import { ScreenshotTask, ScreenshotJob, TaskStatus } from '@/types/screenshot';
+import crypto from 'crypto';
 
 // Don't use explicit puppeteer-core types to avoid compatibility issues
 // Instead, use a more generic type definition
@@ -164,11 +165,21 @@ function sanitizeForFilename(text: string): string {
         .substring(0, 100); // Limit length to prevent excessively long names
 }
 
+function hashQueryString(query: string): string {
+    if (!query) return '';
+    // Use a short, deterministic hash (6 hex chars)
+    return crypto.createHash('sha1').update(query).digest('hex').substring(0, 6);
+}
+
 function generateScreenshotFilename(url: string, dimension: string, type: 'viewport' | 'fullPage'): string {
     try {
         const urlObj = new URL(url);
         const hostname = urlObj.hostname.replace(/^www\./, ''); // Remove www.
         let pathSegment = urlObj.pathname;
+        let queryHash = '';
+        if (urlObj.search) {
+            queryHash = hashQueryString(urlObj.search);
+        }
 
         // Clean up path segment
         if (pathSegment === '/' || pathSegment === '') {
@@ -178,9 +189,13 @@ function generateScreenshotFilename(url: string, dimension: string, type: 'viewp
             pathSegment = sanitizeForFilename(pathSegment.replace(/^\/|\/$/g, ''));
         }
 
-        // Construct filename: domain_path_dimension_type.png
+        // Construct filename: domain_path_dimension_type[_hash].png
         const safeHostname = sanitizeForFilename(hostname);
-        const filename = `${safeHostname}_${pathSegment}_${dimension}_${type}.png`;
+        let filename = `${safeHostname}_${pathSegment}_${dimension}_${type}`;
+        if (queryHash) {
+            filename += `_${queryHash}`;
+        }
+        filename += '.png';
 
         // Further truncate if somehow still too long (should be rare)
         return filename.length > 200 ? filename.substring(0, 196) + '.png' : filename;
