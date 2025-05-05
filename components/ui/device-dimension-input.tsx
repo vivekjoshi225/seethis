@@ -56,13 +56,16 @@ export const DeviceDimensionInput = React.forwardRef<
 
     // --- Initialize state from value prop ONCE on mount --- 
     React.useEffect(() => {
-        const dimensionSet = new Set(value ? value.split('\n').filter(d => d.trim()) : []);
+        // Fix: Properly split on newlines to handle different line break patterns
+        const dimensionSet = new Set(value ? value.split(/\r?\n/).filter(d => d.trim()) : []);
         const initialSelectedDevices = POPULAR_DEVICES?.filter((device: DeviceInfo) => dimensionSet.has(device.dimension)) || [];
         setSelectedDevices(initialSelectedDevices);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Run only on mount
 
     const updateFormValue = (devices: DeviceInfo[]) => {
+        // Fix: Use proper line separator that matches what the form parser expects
+        // The form validation is looking for '\n' but we're potentially using OS-specific newlines
         const newValueString = devices.map(d => d.dimension).join('\n');
         onChange(newValueString);
     };

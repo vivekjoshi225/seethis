@@ -48,8 +48,8 @@ const formSchema = z.object({
   urls: z.string().min(1, 'Please enter at least one URL.'),
   dimensions: z.string().min(1, 'Please select at least one device or enter a dimension.') // Simplified validation
     .refine(value => {
-        // Allow empty or newline-separated WxH dimensions
-        const lines = value.split('\\n').map(d => d.trim()).filter(d => d.length > 0);
+        // Fix: Use consistent regex for splitting different newline types
+        const lines = value.split(/\r?\n/).map(d => d.trim()).filter(d => d.length > 0);
         return lines.every(line => dimensionRegex.test(line));
     }, 'Invalid dimension format detected. Use WxH if manually entering.'), // Keep basic format check?
   screenshotType: z.enum(['viewport', 'fullPage', 'both']).default(DEFAULT_FORM_VALUES.screenshotType), // Use default from const
@@ -177,11 +177,16 @@ export default function Home() {
 
     // Get Dimensions - Use correct newline split and deduplicate
     const uniqueRequestedDimensions = Array.from(new Set(
-        data.dimensions.split('\n')
+        data.dimensions.split(/\r?\n/)  // Fix: Use consistent regex for splitting newlines
                       .map(d => d.trim())
                       .filter(d => dimensionRegex.test(d))
     )); 
-    // No need for separate length check here as Zod ensures at least one valid line exists
+    
+    if (uniqueRequestedDimensions.length === 0) {
+      toast.error('No valid dimensions provided. Please select at least one device or enter a valid dimension (e.g., 1920x1080).');
+      setIsSubmitting(false);
+      return;
+    }
 
     // Set submitted state *before* API call using UNIQUE values
     setSubmittedDimensions(uniqueRequestedDimensions); 
